@@ -31,6 +31,8 @@
 
 #include "platform.h"
 
+#define USE_TELEMETRY_FRSKY_HUB
+
 #if defined(USE_TELEMETRY_FRSKY_HUB)
 
 #include "common/maths.h"
@@ -146,16 +148,7 @@ static uint8_t telemetryState = TELEMETRY_STATE_UNINITIALIZED;
 
 static void serializeFrSkyHub(uint8_t data)
 {
-    // take care of byte stuffing
-    if (data == 0x5e) {
-        frSkyHubWriteByte(0x5d);
-        frSkyHubWriteByte(0x3e);
-    } else if (data == 0x5d) {
-        frSkyHubWriteByte(0x5d);
-        frSkyHubWriteByte(0x3d);
-    } else{
-        frSkyHubWriteByte(data);
-    }
+    frSkyHubWriteByte(data);
 }
 
 static void frSkyHubWriteFrame(const uint8_t id, const int16_t data)
@@ -180,8 +173,10 @@ static void frSkyHubWriteByteInternal(const char data)
 #if defined(USE_ACC)
 static void sendAccel(void)
 {
-    for (unsigned i = 0; i < 3; i++) {
-        frSkyHubWriteFrame(ID_ACC_X + i, ((int16_t)(acc.accADC[i] * acc.dev.acc_1G_rec) * 1000));
+    int16_t* data = getAccelerationRawJC();
+
+    for (unsigned i = 0; i < XYZ_AXIS_COUNT; i++) {
+        frSkyHubWriteFrame(0xAC + i, *(data + i));
     }
 }
 #endif
@@ -195,46 +190,46 @@ static void sendThrottleOrBatterySizeAsRpm(void)
         data = escData->dataAge < ESC_DATA_INVALID ? (erpmToRpm(escData->rpm) / 10) : 0;
     }
 #else
-    if (ARMING_FLAG(ARMED)) {
-        const throttleStatus_e throttleStatus = calculateThrottleStatus();
-        uint16_t throttleForRPM = rcCommand[THROTTLE] / BLADE_NUMBER_DIVIDER;
-        if (throttleStatus == THROTTLE_LOW && featureIsEnabled(FEATURE_MOTOR_STOP)) {
-            throttleForRPM = 0;
-        }
-        data = throttleForRPM;
-    } else {
-        data = (batteryConfig()->batteryCapacity / BLADE_NUMBER_DIVIDER);
-    }
+    // if (ARMING_FLAG(ARMED)) {
+    //     const throttleStatus_e throttleStatus = calculateThrottleStatus();
+    //     uint16_t throttleForRPM = rcCommand[THROTTLE] / BLADE_NUMBER_DIVIDER;
+    //     if (throttleStatus == THROTTLE_LOW && featureIsEnabled(FEATURE_MOTOR_STOP)) {
+    //         throttleForRPM = 0;
+    //     }
+    //     data = throttleForRPM;
+    // } else {
+    //     data = (batteryConfig()->batteryCapacity / BLADE_NUMBER_DIVIDER);
+    // }
 #endif
 
     frSkyHubWriteFrame(ID_RPM, data);
 }
 
-static void sendTemperature1(void)
-{
-    int16_t data = 0;
-#if defined(USE_ESC_SENSOR_TELEMETRY)
-    escSensorData_t *escData = getEscSensorData(ESC_SENSOR_COMBINED);
-    if (escData) {
-        data = escData->dataAge < ESC_DATA_INVALID ? escData->temperature : 0;
-    }
-#elif defined(USE_BARO)
-    data = lrintf(baro.temperature / 100.0f); // Airmamaf
-#else
-    data = lrintf(gyroGetTemperature() / 10.0f);
-#endif
-    frSkyHubWriteFrame(ID_TEMPRATURE1, data);
-}
+// static void sendTemperature1(void)
+// {
+//     int16_t data = 0;
+// #if defined(USE_ESC_SENSOR_TELEMETRY)
+//     escSensorData_t *escData = getEscSensorData(ESC_SENSOR_COMBINED);
+//     if (escData) {
+//         data = escData->dataAge < ESC_DATA_INVALID ? escData->temperature : 0;
+//     }
+// #elif defined(USE_BARO)
+//     data = (baro.baroTemperature + 50)/ 100; // Airmamaf
+// #else
+//     data = gyroGetTemperature() / 10;
+// #endif
+//     frSkyHubWriteFrame(ID_TEMPRATURE1, data);
+// }
 
-static void sendTime(void)
-{
-    uint32_t seconds = millis() / 1000;
-    uint8_t minutes = (seconds / 60) % 60;
+// static void sendTime(void)
+// {
+//     uint32_t seconds = millis() / 1000;
+//     uint8_t minutes = (seconds / 60) % 60;
 
-    // if we fly for more than an hour, something's wrong anyway
-    frSkyHubWriteFrame(ID_HOUR_MINUTE, minutes << 8);
-    frSkyHubWriteFrame(ID_SECOND, seconds % 60);
-}
+//     // if we fly for more than an hour, something's wrong anyway
+//     frSkyHubWriteFrame(ID_HOUR_MINUTE, minutes << 8);
+//     frSkyHubWriteFrame(ID_SECOND, seconds % 60);
+// }
 
 #if defined(USE_GPS) || defined(USE_MAG)
 // Frsky pdf: dddmm.mmmm
@@ -348,104 +343,104 @@ static void sendGPSLatLong(void)
  * NOTE: This sends voltage divided by batteryCellCount. To get the real
  * battery voltage, you need to multiply the value by batteryCellCount.
  */
-static void sendVoltageCells(void)
-{
-    static uint16_t currentCell;
-    uint32_t cellVoltage = 0;
-    const uint8_t cellCount = getBatteryCellCount();
+// static void sendVoltageCells(void)
+// {
+//     static uint16_t currentCell;
+//     uint32_t cellVoltage = 0;
+//     const uint8_t cellCount = getBatteryCellCount();
 
-    if (cellCount) {
-        currentCell %= cellCount;
-        /*
-        * Format for Voltage Data for single cells is like this:
-        *
-        *  llll llll cccc hhhh
-        *  l: Low voltage bits
-        *  h: High voltage bits
-        *  c: Cell number (starting at 0)
-        *
-        * The actual value sent for cell voltage has resolution of 0.002 volts
-        * Since vbat has resolution of 0.1 volts it has to be multiplied by 50
-        */
-        cellVoltage = ((uint32_t)getBatteryVoltage() * 100 + cellCount) / (cellCount * 2);
-    } else {
-        currentCell = 0;
-    }
+//     if (cellCount) {
+//         currentCell %= cellCount;
+//         /*
+//         * Format for Voltage Data for single cells is like this:
+//         *
+//         *  llll llll cccc hhhh
+//         *  l: Low voltage bits
+//         *  h: High voltage bits
+//         *  c: Cell number (starting at 0)
+//         *
+//         * The actual value sent for cell voltage has resolution of 0.002 volts
+//         * Since vbat has resolution of 0.1 volts it has to be multiplied by 50
+//         */
+//         cellVoltage = ((uint32_t)getBatteryVoltage() * 100 + cellCount) / (cellCount * 2);
+//     } else {
+//         currentCell = 0;
+//     }
 
-    // Cell number is at bit 9-12
-    uint16_t data = (currentCell << 4);
+//     // Cell number is at bit 9-12
+//     uint16_t data = (currentCell << 4);
 
-    // Lower voltage bits are at bit 0-8
-    data |= ((cellVoltage & 0x0ff) << 8);
+//     // Lower voltage bits are at bit 0-8
+//     data |= ((cellVoltage & 0x0ff) << 8);
 
-    // Higher voltage bits are at bits 13-15
-    data |= ((cellVoltage & 0xf00) >> 8);
+//     // Higher voltage bits are at bits 13-15
+//     data |= ((cellVoltage & 0xf00) >> 8);
 
-    frSkyHubWriteFrame(ID_VOLT, data);
+//     frSkyHubWriteFrame(ID_VOLT, data);
 
-    currentCell++;
-}
+//     currentCell++;
+// }
 
 /*
  * Send voltage with ID_VOLTAGE_AMP
  */
-static void sendVoltageAmp(void)
-{
-    uint16_t voltage = getLegacyBatteryVoltage();
-    const uint8_t cellCount = getBatteryCellCount();
+// static void sendVoltageAmp(void)
+// {
+//     uint16_t voltage = getLegacyBatteryVoltage();
+//     const uint8_t cellCount = getBatteryCellCount();
 
-    if (telemetryConfig()->frsky_vfas_precision == FRSKY_VFAS_PRECISION_HIGH) {
-        // Use new ID 0x39 to send voltage directly in 0.1 volts resolution
-        if (telemetryConfig()->report_cell_voltage && cellCount) {
-            voltage /= cellCount;
-        }
-        frSkyHubWriteFrame(ID_VOLTAGE_AMP, voltage);
-    } else {
-        // send in 0.2 volts resolution
-        voltage *= 110 / 21;
-        if (telemetryConfig()->report_cell_voltage && cellCount) {
-            voltage /= cellCount;
-        }
+//     if (telemetryConfig()->frsky_vfas_precision == FRSKY_VFAS_PRECISION_HIGH) {
+//         // Use new ID 0x39 to send voltage directly in 0.1 volts resolution
+//         if (telemetryConfig()->report_cell_voltage && cellCount) {
+//             voltage /= cellCount;
+//         }
+//         frSkyHubWriteFrame(ID_VOLTAGE_AMP, voltage);
+//     } else {
+//         // send in 0.2 volts resolution
+//         voltage *= 110 / 21;
+//         if (telemetryConfig()->report_cell_voltage && cellCount) {
+//             voltage /= cellCount;
+//         }
 
-        frSkyHubWriteFrame(ID_VOLTAGE_AMP_BP, voltage / 100);
-        frSkyHubWriteFrame(ID_VOLTAGE_AMP_AP, ((voltage % 100) + 5) / 10);
-    }
-}
+//         frSkyHubWriteFrame(ID_VOLTAGE_AMP_BP, voltage / 100);
+//         frSkyHubWriteFrame(ID_VOLTAGE_AMP_AP, ((voltage % 100) + 5) / 10);
+//     }
+// }
 
-static void sendAmperage(void)
-{
-    frSkyHubWriteFrame(ID_CURRENT, (uint16_t)(getAmperage() / 10));
-}
+// static void sendAmperage(void)
+// {
+//     frSkyHubWriteFrame(ID_CURRENT, (uint16_t)(getAmperage() / 10));
+// }
 
-static void sendFuelLevel(void)
-{
-    int16_t data;
-    if (batteryConfig()->batteryCapacity > 0) {
-        data = (uint16_t)calculateBatteryPercentageRemaining();
-    } else {
-        data = (uint16_t)constrain(getMAhDrawn(), 0, 0xFFFF);
-    }
-    frSkyHubWriteFrame(ID_FUEL_LEVEL, data);
-}
+// static void sendFuelLevel(void)
+// {
+//     int16_t data;
+//     if (batteryConfig()->batteryCapacity > 0) {
+//         data = (uint16_t)calculateBatteryPercentageRemaining();
+//     } else {
+//         data = (uint16_t)constrain(getMAhDrawn(), 0, 0xFFFF);
+//     }
+//     frSkyHubWriteFrame(ID_FUEL_LEVEL, data);
+// }
 
-#if defined(USE_MAG)
-static void sendFakeLatLongThatAllowsHeadingDisplay(void)
-{
-    // Heading is only displayed on OpenTX if non-zero lat/long is also sent
-    int32_t coord[2] = {
-        1 * GPS_DEGREES_DIVIDER,
-        1 * GPS_DEGREES_DIVIDER
-    };
+// #if defined(USE_MAG)
+// static void sendFakeLatLongThatAllowsHeadingDisplay(void)
+// {
+//     // Heading is only displayed on OpenTX if non-zero lat/long is also sent
+//     int32_t coord[2] = {
+//         1 * GPS_DEGREES_DIVIDER,
+//         1 * GPS_DEGREES_DIVIDER
+//     };
 
-    sendLatLong(coord);
-}
+//     sendLatLong(coord);
+// }
 
-static void sendHeading(void)
-{
-    frSkyHubWriteFrame(ID_COURSE_BP, DECIDEGREES_TO_DEGREES(attitude.values.yaw));
-    frSkyHubWriteFrame(ID_COURSE_AP, 0);
-}
-#endif
+// static void sendHeading(void)
+// {
+//     frSkyHubWriteFrame(ID_COURSE_BP, DECIDEGREES_TO_DEGREES(attitude.values.yaw));
+//     frSkyHubWriteFrame(ID_COURSE_AP, 0);
+// }
+// #endif
 
 bool initFrSkyHubTelemetry(void)
 {
@@ -540,7 +535,7 @@ void processFrSkyHubTelemetry(timeUs_t currentTimeUs)
 #endif
 
         // Sent every 500ms
-        if ((cycleNum % 4) == 0 && telemetryIsSensorEnabled(SENSOR_ALTITUDE)) {
+        if (telemetryIsSensorEnabled(SENSOR_ALTITUDE)) {
             int32_t altitudeCm = getEstimatedAltitudeCm();
 
             /* Allow 5s to boot correctly othervise send zero to prevent OpenTX
@@ -549,41 +544,32 @@ void processFrSkyHubTelemetry(timeUs_t currentTimeUs)
                 altitudeCm = 0;
             }
 
-            frSkyHubWriteFrame(ID_ALTITUDE_BP, altitudeCm / 100); // meters: integer part, eg. 123 from 123.45m
-            frSkyHubWriteFrame(ID_ALTITUDE_AP, altitudeCm % 100); // meters: fractional part, eg. 45 from 123.45m
+            frSkyHubWriteFrame(ID_ALTITUDE_BP, altitudeCm); // meters: integer part, eg. 123 from 123.45m
+            // frSkyHubWriteFrame(ID_ALTITUDE_AP, altitudeCm); // meters: fractional part, eg. 45 from 123.45m
         }
     }
 #endif
 
 #if defined(USE_MAG)
-    if (sensors(SENSOR_MAG) && telemetryIsSensorEnabled(SENSOR_HEADING)) {
-        // Sent every 500ms
-        if ((cycleNum % 4) == 0) {
-            sendHeading();
-        }
-    }
+    // if (sensors(SENSOR_MAG) && telemetryIsSensorEnabled(SENSOR_HEADING)) {
+    //     // Sent every 500ms
+    //     //if ((cycleNum % 4) == 0) { JVM
+    //     if ((cycleNum % 4*adaption_value) == 0) {
+    //         sendHeading();
+    //     }
+    // }
 #endif
 
-    // Sent every 1s
-    if ((cycleNum % 8) == 0) {
-        sendTemperature1();
         sendThrottleOrBatterySizeAsRpm();
 
         if (isBatteryVoltageConfigured()) {
             if (telemetryIsSensorEnabled(SENSOR_VOLTAGE)) {
-                sendVoltageCells();
-                sendVoltageAmp();
-            }
 
-            if (isAmperageConfigured()) {
-                if (telemetryIsSensorEnabled(SENSOR_CURRENT)) {
-                    sendAmperage();
-                }
-                if (telemetryIsSensorEnabled(SENSOR_FUEL)) {
-                    sendFuelLevel();
-                }
+                uint16_t volt_selfmade = getBatteryVoltageLatest();
+                frSkyHubWriteFrame(0xAA, volt_selfmade);
+                uint16_t amp_selfmade = getAmperageLatest();
+                frSkyHubWriteFrame(0xAB, amp_selfmade);
             }
-        }
 
 #if defined(USE_GPS)
         if (sensors(SENSOR_GPS)) {
@@ -601,7 +587,7 @@ void processFrSkyHubTelemetry(timeUs_t currentTimeUs)
 #endif
 #if defined(USE_MAG)
         if (sensors(SENSOR_MAG)) {
-            sendFakeLatLongThatAllowsHeadingDisplay();
+            //sendFakeLatLongThatAllowsHeadingDisplay();
         }
 #else
         {}
@@ -611,7 +597,7 @@ void processFrSkyHubTelemetry(timeUs_t currentTimeUs)
     // Sent every 5s
     if (cycleNum == 40) {
         cycleNum = 0;
-        sendTime();
+        //sendTime();
     }
 
     sendTelemetryTail();

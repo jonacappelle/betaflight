@@ -84,4 +84,9 @@ void accUpdate(timeUs_t currentTimeUs)
     }
 }
 
+int16_t* getAccelerationRawJC(void)
+{
+    return acc.dev.ADCRaw;
+}
+
 #endif
