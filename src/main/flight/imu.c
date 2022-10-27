@@ -343,6 +343,13 @@ STATIC_UNIT_TESTED void imuUpdateEulerAngles(void)
     }
 }
 
+void imuGetEulerAngles(attitudeEulerAngles_t* data)
+{
+    data->values.roll = attitude.values.roll;
+    data->values.pitch = attitude.values.pitch;
+    data->values.yaw = attitude.values.yaw;
+}
+
 static bool imuIsAccelerometerHealthy(float *accAverage)
 {
     float accMagnitudeSq = 0;

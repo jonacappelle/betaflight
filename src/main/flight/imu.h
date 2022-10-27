@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include "common/axis.h"
 #include "common/time.h"
 #include "common/maths.h"
@@ -86,3 +88,5 @@ bool imuQuaternionHeadfreeOffsetSet(void);
 void imuQuaternionHeadfreeTransformVectorEarthToBody(t_fp_vector_def * v);
 bool shouldInitializeGPSHeading(void);
 bool isUpright(void);
+
+void imuGetEulerAngles(attitudeEulerAngles_t* data);

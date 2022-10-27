@@ -130,6 +130,9 @@ static frSkyHubWriteByteFn *frSkyHubWriteByte = NULL;
 #define ID_GYRO_Y             0x41
 #define ID_GYRO_Z             0x42
 
+#define ID_TILT_ANGLE         0xBA
+#define ID_EULER_ANGLE_START  0xBB
+
 #define ID_VERT_SPEED         0x30 // opentx vario
 
 #define GPS_BAD_QUALITY       300
@@ -298,6 +301,8 @@ static void sendSatalliteSignalQualityAsTemperature2(uint8_t cycleNum)
 static void sendSpeed(void)
 {
     if (!STATE(GPS_FIX)) {
+        frSkyHubWriteFrame(ID_GPS_SPEED_BP, 0);
+        frSkyHubWriteFrame(ID_GPS_SPEED_AP, 0);
         return;
     }
     // Speed should be sent in knots (GPS speed is in cm/s)
@@ -504,6 +509,27 @@ void checkFrSkyHubTelemetryState(void)
     }
 }
 
+void sendTiltAngle(void)
+{
+    float tilt_angle = getCosTiltAngle();
+    int16_t data = (int16_t)(tilt_angle * 1000);
+    frSkyHubWriteFrame(ID_TILT_ANGLE, data);
+}
+
+void sendEulerAngles(void)
+{
+    attitudeEulerAngles_t data;
+    imuGetEulerAngles(&data);
+
+    uint32_t i=0;
+    frSkyHubWriteFrame(ID_EULER_ANGLE_START + i, data.values.roll);
+    i++;
+    frSkyHubWriteFrame(ID_EULER_ANGLE_START + i, data.values.pitch);
+    i++;
+    frSkyHubWriteFrame(ID_EULER_ANGLE_START + i, data.values.yaw);
+
+}
+
 void processFrSkyHubTelemetry(timeUs_t currentTimeUs)
 {
     static uint32_t frSkyHubLastCycleTime = 0;
@@ -559,6 +585,9 @@ void processFrSkyHubTelemetry(timeUs_t currentTimeUs)
     //     }
     // }
 #endif
+
+        sendTiltAngle();
+        sendEulerAngles();
 
         sendThrottleOrBatterySizeAsRpm();
 
