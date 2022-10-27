@@ -176,10 +176,11 @@ static void frSkyHubWriteByteInternal(const char data)
 #if defined(USE_ACC)
 static void sendAccel(void)
 {
-    int16_t* data = getAccelerationRawJC();
+    // int16_t* data = getAccelerationRawJC();
 
     for (unsigned i = 0; i < XYZ_AXIS_COUNT; i++) {
-        frSkyHubWriteFrame(0xAC + i, *(data + i));
+        // frSkyHubWriteFrame(0xAC + i, *(data + i));
+        frSkyHubWriteFrame(0xAC + i, (int16_t)(acc.accADC[i] * acc.dev.acc_1G_rec * 1000));
     }
 }
 #endif
